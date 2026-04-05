@@ -23,6 +23,10 @@ interface VsCodeApi {
   setState(state: any): void;
 }
 
+// Declare the global function that VS Code injects into webviews.
+// TypeScript doesn't know about it, so we tell it "trust us, this exists at runtime."
+declare function acquireVsCodeApi(): VsCodeApi;
+
 // acquireVsCodeApi can only be called ONCE per webview session
 // If we're in VS Code, use it. Otherwise (dev mode), use a mock.
 const vscode: VsCodeApi =

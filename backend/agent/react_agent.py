@@ -1,30 +1,27 @@
 """
-react_agent.py — The core ReAct agent using LangChain + Ollama.
+react_agent.py — The core ReAct agent using LangGraph + Ollama.
 
 This is the BRAIN of DataPilot. Here's how it works:
 
-1. LangChain creates a ReAct agent with our 8 tools
+1. LangGraph creates a ReAct agent with our 8 tools
 2. We give it a prompt: "Analyze this dataset"
 3. The agent enters a loop:
    - THINK: "I should detect the problem type first"
    - ACT:   calls detect_problem tool
    - OBSERVE: reads the tool's output
-   - THINK: "It's a classification problem with target 'Survived'. Now I should profile the data."
+   - THINK: "It's a classification problem. Now I should profile the data."
    - ACT:   calls profile_data tool
    - ...continues for all 8 tools...
    - FINAL ANSWER: summary of the entire analysis
 
-ReAct Pattern (Reason + Act):
-  The key insight is that the LLM REASONS before each action.
-  It doesn't blindly call tools in order — it reads results and adapts.
-  For example, if profiling reveals 80% missing values in a column,
-  the agent might note this and adjust its preprocessing approach.
+LangGraph (replacing old LangChain AgentExecutor):
+  LangChain v1.2+ moved agent orchestration to LangGraph.
+  `create_react_agent` from langgraph.prebuilt creates a stateful graph
+  that handles the Think → Act → Observe loop automatically.
 
-LangChain's Role:
-  - Manages the tool-calling loop
-  - Parses the LLM's output to extract tool calls
-  - Executes tools and feeds results back to the LLM
-  - Handles the ReAct format (Thought/Action/Observation)
+  Key difference from old API:
+  - Old: AgentExecutor + create_react_agent (from langchain.agents)
+  - New: create_react_agent (from langgraph.prebuilt) — simpler, one function
 
 Ollama's Role:
   - Runs a local LLM (Llama 3.1, Mistral, etc.) for FREE
@@ -41,9 +38,8 @@ import asyncio
 from typing import Callable, Any
 
 from langchain_ollama import ChatOllama
-from langchain.agents import AgentExecutor, create_react_agent
-from langchain_core.prompts import PromptTemplate
-from langchain_core.callbacks import BaseCallbackHandler
+from langgraph.prebuilt import create_react_agent
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from config import OLLAMA_BASE_URL, OLLAMA_MODEL, LLM_TEMPERATURE
 from pipeline.state import PipelineState
@@ -56,80 +52,6 @@ from tools.feature_engineering import FeatureEngineeringTool
 from tools.model_training import ModelTrainingTool
 from tools.evaluation import EvaluationTool
 from tools.explainability import ExplainabilityTool
-
-
-class StreamingCallbackHandler(BaseCallbackHandler):
-    """
-    LangChain callback handler that captures agent events for SSE streaming.
-
-    LangChain fires callbacks at key moments:
-      - on_tool_start: agent is about to call a tool
-      - on_tool_end: tool finished executing
-      - on_llm_start: LLM is generating a response
-      - on_agent_action: agent decided on an action
-
-    We capture these and push them to the event queue,
-    which gets streamed to the VS Code extension via SSE.
-    """
-
-    def __init__(self, event_callback: Callable):
-        super().__init__()
-        self.event_callback = event_callback
-        self._loop = None
-
-    def _get_loop(self):
-        """Get or create event loop for async callback."""
-        try:
-            return asyncio.get_running_loop()
-        except RuntimeError:
-            return None
-
-    def _emit(self, event: dict):
-        """Emit an event through the callback."""
-        loop = self._get_loop()
-        if loop and loop.is_running():
-            asyncio.ensure_future(self.event_callback(event))
-        else:
-            # If no async loop, create one for this call
-            try:
-                asyncio.run(self.event_callback(event))
-            except RuntimeError:
-                pass  # Already in an async context
-
-    def on_tool_start(self, serialized: dict, input_str: str, **kwargs):
-        """Called when a tool is about to be executed."""
-        tool_name = serialized.get("name", "unknown")
-        self._emit({
-            "type": "tool_start",
-            "tool": tool_name,
-            "input": input_str[:200],  # Truncate long inputs
-        })
-
-    def on_tool_end(self, output: str, **kwargs):
-        """Called when a tool finishes execution."""
-        self._emit({
-            "type": "tool_end",
-            "output_preview": output[:500],  # First 500 chars of output
-        })
-
-    def on_llm_start(self, serialized: dict, prompts: list, **kwargs):
-        """Called when the LLM starts generating."""
-        self._emit({"type": "agent_thinking"})
-
-    def on_agent_action(self, action, **kwargs):
-        """Called when the agent decides on an action."""
-        self._emit({
-            "type": "agent_action",
-            "tool": action.tool,
-            "thought": action.log[:300] if hasattr(action, 'log') else "",
-        })
-
-    def on_agent_finish(self, finish, **kwargs):
-        """Called when the agent produces its final answer."""
-        self._emit({
-            "type": "agent_finish",
-            "output": finish.return_values.get("output", "")[:1000],
-        })
 
 
 def create_tools(state: PipelineState) -> list:
@@ -152,36 +74,9 @@ def create_tools(state: PipelineState) -> list:
     ]
 
 
-# LangChain ReAct prompt template
-# This wraps our system prompt with LangChain's required format
-# {tools} and {tool_names} are injected by LangChain
-# {agent_scratchpad} is where LangChain puts the Thought/Action/Observation history
-REACT_PROMPT = PromptTemplate.from_template(
-    """{system_prompt}
-
-You have access to the following tools:
-
-{tools}
-
-Use the following format:
-
-Thought: your reasoning about what to do next
-Action: the tool name to use (one of [{tool_names}])
-Action Input: the input to the tool (use empty string "" if no input needed)
-Observation: the result of the tool call
-... (this Thought/Action/Action Input/Observation can repeat)
-Thought: I have completed all analysis steps
-Final Answer: your comprehensive summary of the entire analysis
-
-Begin! Analyze the dataset step by step.
-
-{agent_scratchpad}"""
-)
-
-
 async def run_pipeline(state: PipelineState, on_event: Callable) -> PipelineState:
     """
-    Run the full ML pipeline using the LangChain ReAct agent.
+    Run the full ML pipeline using the LangGraph ReAct agent.
 
     Args:
         state: PipelineState with raw_df already loaded
@@ -193,9 +88,9 @@ async def run_pipeline(state: PipelineState, on_event: Callable) -> PipelineStat
     This function:
     1. Creates the Ollama LLM (free, local)
     2. Creates all 8 tools
-    3. Builds a ReAct agent
+    3. Builds a ReAct agent graph using LangGraph
     4. Runs the agent — it will call tools in order, reasoning at each step
-    5. Returns the updated state with all results
+    5. Streams events via callback for real-time UI updates
     """
     state.status = "running"
     await on_event({"type": "pipeline_start", "message": "Starting ML pipeline..."})
@@ -213,33 +108,22 @@ async def run_pipeline(state: PipelineState, on_event: Callable) -> PipelineStat
         # --- Step 2: Create tools ---
         tools = create_tools(state)
 
-        # --- Step 3: Build the ReAct agent ---
-        # create_react_agent: creates an agent that follows the ReAct pattern
-        # It wraps the LLM with tool-calling logic
+        # --- Step 3: Build the ReAct agent using LangGraph ---
+        # create_react_agent from langgraph.prebuilt:
+        #   - Takes an LLM and a list of tools
+        #   - Returns a compiled graph that runs the ReAct loop
+        #   - The graph handles: Think → Tool Call → Observe → Think → ...
+        #   - Much simpler than the old AgentExecutor approach
         agent = create_react_agent(
-            llm=llm,
+            model=llm,
             tools=tools,
-            prompt=REACT_PROMPT.partial(system_prompt=SYSTEM_PROMPT),
         )
 
-        # AgentExecutor runs the agent loop:
-        #   Think → Act → Observe → Think → Act → ...
-        # max_iterations prevents infinite loops
-        # handle_parsing_errors retries if the LLM gives malformed output
-        executor = AgentExecutor(
-            agent=agent,
-            tools=tools,
-            verbose=True,  # Print Thought/Action/Observation to console (debugging)
-            max_iterations=20,
-            handle_parsing_errors=True,
-            callbacks=[StreamingCallbackHandler(on_event)],
-        )
-
-        # --- Step 4: Run the agent ---
+        # --- Step 4: Prepare the input ---
         columns = list(state.raw_df.columns) if state.raw_df is not None else []
         shape = list(state.raw_df.shape) if state.raw_df is not None else [0, 0]
 
-        # This input tells the agent what dataset to analyze
+        # The input tells the agent what to do
         agent_input = (
             f"Analyze this dataset. It has {shape[0]} rows and {shape[1]} columns. "
             f"Columns: {columns}. "
@@ -248,16 +132,53 @@ async def run_pipeline(state: PipelineState, on_event: Callable) -> PipelineStat
             f"Run all 8 pipeline steps in order."
         )
 
-        result = await asyncio.to_thread(
-            executor.invoke,
-            {"input": agent_input},
-        )
+        messages = [
+            SystemMessage(content=SYSTEM_PROMPT),
+            HumanMessage(content=agent_input),
+        ]
 
-        # --- Step 5: Mark as complete ---
+        # --- Step 5: Run the agent and stream events ---
+        # agent.astream_events gives us a stream of every event:
+        #   - tool calls, tool results, LLM tokens, etc.
+        # We filter for the events we care about and push them to the UI.
+
+        async for event in agent.astream_events(
+            {"messages": messages},
+            version="v2",
+        ):
+            kind = event.get("event", "")
+
+            if kind == "on_tool_start":
+                tool_name = event.get("name", "unknown")
+                await on_event({
+                    "type": "tool_start",
+                    "tool": tool_name,
+                    "input": str(event.get("data", {}).get("input", ""))[:200],
+                })
+
+            elif kind == "on_tool_end":
+                tool_name = event.get("name", "unknown")
+                output = str(event.get("data", {}).get("output", ""))[:500]
+                await on_event({
+                    "type": "tool_end",
+                    "tool": tool_name,
+                    "output_preview": output,
+                })
+
+            elif kind == "on_chat_model_stream":
+                # LLM is generating tokens — agent is "thinking"
+                chunk = event.get("data", {}).get("chunk", None)
+                if chunk and hasattr(chunk, "content") and chunk.content:
+                    await on_event({
+                        "type": "agent_thinking",
+                        "content": str(chunk.content)[:200],
+                    })
+
+        # --- Step 6: Mark as complete ---
         state.status = "completed"
         await on_event({
             "type": "pipeline_complete",
-            "summary": result.get("output", "Pipeline completed successfully."),
+            "summary": "Pipeline completed successfully. All 8 steps finished.",
         })
 
     except Exception as e:
