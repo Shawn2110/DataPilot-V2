@@ -1,0 +1,57 @@
+# DataPilot v2 — Docker Compose
+#
+# Starts 3 services:
+#   1. backend  (FastAPI + LangGraph agent) — port 8000
+#   2. jupyter  (JupyterLab server)         — port 8888
+#   3. web      (Next.js frontend)          — port 3000
+#
+# Ollama runs on the host machine (not in Docker) at localhost:11434
+#
+# Usage:
+#   docker-compose up          # start all services
+#   docker-compose up -d       # start in background
+#   docker-compose down        # stop all services
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - JUPYTER_SERVER_URL=http://jupyter:8888
+      - JUPYTER_TOKEN=datapilot-dev-token
+    depends_on:
+      - jupyter
+    volumes:
+      - uploads:/app/storage/uploads
+      - notebooks:/app/storage/notebooks
+
+  jupyter:
+    image: jupyter/scipy-notebook:latest
+    ports:
+      - "8888:8888"
+    environment:
+      - JUPYTER_TOKEN=datapilot-dev-token
+    volumes:
+      - notebooks:/home/jovyan/work
+    command: start.sh jupyter lab --NotebookApp.allow_origin='*' --ServerApp.allow_origin='*'
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
+      - NEXT_PUBLIC_JUPYTER_URL=http://localhost:8888
+      - NEXT_PUBLIC_JUPYTER_TOKEN=datapilot-dev-token
+    depends_on:
+      - backend
+
+volumes:
+  uploads:
+  notebooks:

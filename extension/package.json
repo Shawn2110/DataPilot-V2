@@ -1,0 +1,71 @@
+{
+  "name": "datapilot",
+  "displayName": "DataPilot - AI Data Science Copilot",
+  "description": "Chat-driven AI copilot that generates Python code in Jupyter notebooks",
+  "version": "2.0.0",
+  "publisher": "Shawn2110",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Data Science",
+    "Machine Learning",
+    "Notebooks"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onNotebook:jupyter-notebook"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "datapilot.openChat",
+        "title": "DataPilot: Open Chat"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "datapilot-sidebar",
+          "title": "DataPilot",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "datapilot-sidebar": [
+        {
+          "type": "webview",
+          "id": "datapilot.chatView",
+          "name": "DataPilot Chat"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "DataPilot",
+      "properties": {
+        "datapilot.backendUrl": {
+          "type": "string",
+          "default": "http://localhost:8000",
+          "description": "URL of the DataPilot backend server"
+        },
+        "datapilot.ollamaModel": {
+          "type": "string",
+          "default": "llama3.1",
+          "description": "Ollama model to use"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.4.0"
+  }
+}
