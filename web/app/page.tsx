@@ -2,23 +2,15 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { FileUpload } from "@/components/home/FileUpload";
+import { Card, CardContent } from "@/components/ui/card";
 
-/**
- * Home page — Upload a dataset to start analyzing.
- *
- * Flow:
- *   1. User drags/drops or selects a CSV/Excel file
- *   2. File is uploaded to the backend (POST /api/upload)
- *   3. Backend creates a session, returns session_id
- *   4. User is redirected to /workspace?session={id}
- */
 export default function Home() {
   const router = useRouter();
-  const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleFile(file: File) {
+  async function handleUpload(file: File) {
     setIsUploading(true);
     setError(null);
 
@@ -45,70 +37,39 @@ export default function Home() {
     }
   }
 
-  function handleDrop(e: React.DragEvent) {
-    e.preventDefault();
-    setIsDragging(false);
-    const file = e.dataTransfer.files[0];
-    if (file) handleFile(file);
-  }
-
-  function handleFileInput(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (file) handleFile(file);
-  }
-
   return (
-    <main className="flex-1 flex flex-col items-center justify-center p-8 bg-gray-950 text-white">
+    <main className="flex-1 flex flex-col items-center justify-center p-8">
+      {/* Hero */}
       <div className="text-center mb-12">
         <h1 className="text-5xl font-bold mb-4">
-          Data<span className="text-blue-400">Pilot</span>
+          Data<span className="text-primary">Pilot</span>
         </h1>
-        <p className="text-xl text-gray-400 max-w-xl">
+        <p className="text-xl text-muted-foreground max-w-xl mx-auto">
           AI-powered data science copilot. Upload your data, chat with the agent,
           and watch it generate code in a Jupyter notebook.
         </p>
       </div>
 
-      <div
-        className={`w-full max-w-lg border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer transition-all ${
-          isDragging
-            ? "border-blue-400 bg-blue-400/10"
-            : "border-gray-700 hover:border-gray-500 bg-gray-900"
-        }`}
-        onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-        onDragLeave={() => setIsDragging(false)}
-        onDrop={handleDrop}
-        onClick={() => document.getElementById("fileInput")?.click()}
-      >
-        {isUploading ? (
-          <p className="text-gray-400">Uploading...</p>
-        ) : (
-          <div>
-            <p className="text-lg font-medium mb-2">Drop your dataset here</p>
-            <p className="text-sm text-gray-500">CSV, Excel (.xlsx, .xls)</p>
-          </div>
-        )}
-        <input
-          id="fileInput"
-          type="file"
-          accept=".csv,.xlsx,.xls"
-          onChange={handleFileInput}
-          className="hidden"
-        />
-      </div>
+      {/* Upload */}
+      <FileUpload onUpload={handleUpload} isUploading={isUploading} />
 
-      {error && <p className="mt-4 text-red-400 text-sm">{error}</p>}
+      {error && (
+        <p className="mt-4 text-destructive text-sm">{error}</p>
+      )}
 
-      <div className="grid grid-cols-3 gap-6 mt-16 max-w-3xl">
+      {/* Feature cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-16 max-w-3xl w-full">
         {[
           { title: "Chat-Driven", desc: "Tell the AI what to analyze in plain English" },
           { title: "Jupyter Notebook", desc: "All code runs in a real notebook you can edit" },
           { title: "Free & Local", desc: "Runs on Ollama — no API keys, no cloud costs" },
         ].map((f) => (
-          <div key={f.title} className="text-center p-4">
-            <h3 className="font-semibold mb-1">{f.title}</h3>
-            <p className="text-sm text-gray-500">{f.desc}</p>
-          </div>
+          <Card key={f.title}>
+            <CardContent className="p-6 text-center">
+              <h3 className="font-semibold mb-1">{f.title}</h3>
+              <p className="text-sm text-muted-foreground">{f.desc}</p>
+            </CardContent>
+          </Card>
         ))}
       </div>
     </main>

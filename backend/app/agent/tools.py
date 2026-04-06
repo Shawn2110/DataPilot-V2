@@ -60,82 +60,127 @@ display({variable_name}.describe())"""
 @tool
 def create_visualization(plot_type: str, columns: list[str], title: str = "") -> str:
     """
-    Generate matplotlib/seaborn visualization code.
+    Generate Plotly visualization code for interactive charts in Jupyter.
+
+    Plotly charts are interactive — users can zoom, pan, hover for values,
+    and export as PNG. Much better than static matplotlib in notebooks.
 
     Args:
-        plot_type: type of plot (scatter, histogram, bar, boxplot, heatmap, line)
+        plot_type: type of plot (scatter, histogram, bar, boxplot, heatmap, line, pie, violin, sunburst)
         columns: column names to plot
         title: optional chart title
 
     Returns:
-        Python code for the visualization.
+        Python code for an interactive Plotly visualization.
     """
     title_str = title or f"{plot_type.title()} Plot"
 
     if plot_type == "scatter" and len(columns) >= 2:
-        return f"""import matplotlib.pyplot as plt
+        return f"""import plotly.express as px
 
-plt.figure(figsize=(10, 6))
-plt.scatter(df['{columns[0]}'], df['{columns[1]}'], alpha=0.6)
-plt.xlabel('{columns[0]}')
-plt.ylabel('{columns[1]}')
-plt.title('{title_str}')
-plt.tight_layout()
-plt.show()"""
+fig = px.scatter(df, x='{columns[0]}', y='{columns[1]}',
+                 title='{title_str}',
+                 opacity=0.6,
+                 template='plotly_dark')
+fig.update_layout(width=800, height=500)
+fig.show()"""
 
     elif plot_type == "histogram" and len(columns) >= 1:
-        return f"""import matplotlib.pyplot as plt
+        return f"""import plotly.express as px
 
-plt.figure(figsize=(10, 6))
-df['{columns[0]}'].hist(bins=30, edgecolor='black')
-plt.xlabel('{columns[0]}')
-plt.ylabel('Frequency')
-plt.title('{title_str}')
-plt.tight_layout()
-plt.show()"""
+fig = px.histogram(df, x='{columns[0]}',
+                   title='{title_str}',
+                   nbins=30,
+                   template='plotly_dark')
+fig.update_layout(width=800, height=500)
+fig.show()"""
 
     elif plot_type == "boxplot" and len(columns) >= 1:
-        cols_str = str(columns)
-        return f"""import matplotlib.pyplot as plt
-import seaborn as sns
+        if len(columns) == 1:
+            return f"""import plotly.express as px
 
-plt.figure(figsize=(10, 6))
-df[{cols_str}].boxplot()
-plt.title('{title_str}')
-plt.tight_layout()
-plt.show()"""
+fig = px.box(df, y='{columns[0]}',
+             title='{title_str}',
+             template='plotly_dark')
+fig.update_layout(width=800, height=500)
+fig.show()"""
+        else:
+            cols_list = columns[:5]
+            return f"""import plotly.express as px
+
+melted = df[{cols_list}].melt(var_name='Feature', value_name='Value')
+fig = px.box(melted, x='Feature', y='Value',
+             title='{title_str}',
+             template='plotly_dark')
+fig.update_layout(width=800, height=500)
+fig.show()"""
 
     elif plot_type == "heatmap":
-        return f"""import matplotlib.pyplot as plt
-import seaborn as sns
+        return f"""import plotly.express as px
 
-plt.figure(figsize=(12, 8))
 corr = df.select_dtypes(include='number').corr()
-sns.heatmap(corr, annot=True, cmap='coolwarm', center=0, fmt='.2f')
-plt.title('{title_str}')
-plt.tight_layout()
-plt.show()"""
+fig = px.imshow(corr,
+                text_auto='.2f',
+                title='{title_str}',
+                color_continuous_scale='RdBu_r',
+                aspect='auto',
+                template='plotly_dark')
+fig.update_layout(width=800, height=600)
+fig.show()"""
 
     elif plot_type == "bar" and len(columns) >= 1:
-        return f"""import matplotlib.pyplot as plt
+        return f"""import plotly.express as px
 
-plt.figure(figsize=(10, 6))
-df['{columns[0]}'].value_counts().head(20).plot(kind='bar')
-plt.xlabel('{columns[0]}')
-plt.ylabel('Count')
-plt.title('{title_str}')
-plt.tight_layout()
-plt.show()"""
+counts = df['{columns[0]}'].value_counts().head(20).reset_index()
+counts.columns = ['{columns[0]}', 'count']
+fig = px.bar(counts, x='{columns[0]}', y='count',
+             title='{title_str}',
+             template='plotly_dark')
+fig.update_layout(width=800, height=500)
+fig.show()"""
+
+    elif plot_type == "line" and len(columns) >= 1:
+        y_col = columns[0]
+        x_part = f"x='{columns[1]}', " if len(columns) >= 2 else ""
+        return f"""import plotly.express as px
+
+fig = px.line(df, {x_part}y='{y_col}',
+              title='{title_str}',
+              template='plotly_dark')
+fig.update_layout(width=800, height=500)
+fig.show()"""
+
+    elif plot_type == "pie" and len(columns) >= 1:
+        return f"""import plotly.express as px
+
+counts = df['{columns[0]}'].value_counts().head(10).reset_index()
+counts.columns = ['{columns[0]}', 'count']
+fig = px.pie(counts, names='{columns[0]}', values='count',
+             title='{title_str}',
+             template='plotly_dark')
+fig.update_layout(width=700, height=500)
+fig.show()"""
+
+    elif plot_type == "violin" and len(columns) >= 1:
+        return f"""import plotly.express as px
+
+fig = px.violin(df, y='{columns[0]}',
+                box=True, points='outliers',
+                title='{title_str}',
+                template='plotly_dark')
+fig.update_layout(width=800, height=500)
+fig.show()"""
 
     else:
-        return f"""import matplotlib.pyplot as plt
+        return f"""import plotly.express as px
 
-# Plot: {title_str}
-plt.figure(figsize=(10, 6))
-df[{columns}].plot()
-plt.title('{title_str}')
-plt.tight_layout()
-plt.show()"""
+# {title_str}
+fig = px.scatter(df, x='{columns[0] if columns else "index"}',
+                 y='{columns[1] if len(columns) > 1 else columns[0] if columns else "index"}',
+                 title='{title_str}',
+                 template='plotly_dark')
+fig.update_layout(width=800, height=500)
+fig.show()"""
 
 
 @tool

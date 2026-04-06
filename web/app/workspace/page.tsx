@@ -2,8 +2,8 @@
 
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
-import { ChatSidebar } from "../../components/ChatSidebar";
-import { JupyterFrame } from "../../components/JupyterFrame";
+import { ChatSidebar } from "@/components/chat/ChatSidebar";
+import { JupyterFrame } from "@/components/workspace/JupyterFrame";
 
 /**
  * Workspace page — The Kaggle-like split view.
