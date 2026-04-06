@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { saveMessage, getMessages } from "@/lib/db";
 
 interface Message {
   id: string;
@@ -31,15 +32,34 @@ export function ChatSidebar({ sessionId }: { sessionId: string }) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
+  // Load saved messages from IndexedDB on mount
+  useEffect(() => {
+    if (!sessionId) return;
+    getMessages(sessionId).then((saved) => {
+      if (saved.length > 0) {
+        setMessages(saved.map((m) => ({ id: m.id, role: m.role, content: m.content })));
+      }
+    }).catch(() => {}); // IndexedDB not available — ignore
+  }, [sessionId]);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   function addMessage(role: Message["role"], content: string) {
-    setMessages((prev) => [
-      ...prev,
-      { id: Date.now().toString() + Math.random(), role, content },
-    ]);
+    const id = Date.now().toString() + Math.random();
+    setMessages((prev) => [...prev, { id, role, content }]);
+
+    // Persist to IndexedDB (fire-and-forget)
+    if (sessionId) {
+      saveMessage({
+        id,
+        projectId: sessionId,
+        role,
+        content,
+        createdAt: new Date().toISOString(),
+      }).catch(() => {});
+    }
   }
 
   async function handleSend() {

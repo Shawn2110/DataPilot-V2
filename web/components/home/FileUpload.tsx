@@ -1,12 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { useRef, useState } from "react";
 
 /**
  * FileUpload — Drag-and-drop file upload component.
- * Used on the home page to upload datasets.
  */
 export function FileUpload({
   onUpload,
@@ -16,6 +13,7 @@ export function FileUpload({
   isUploading: boolean;
 }) {
   const [isDragging, setIsDragging] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
@@ -24,39 +22,45 @@ export function FileUpload({
     if (file) onUpload(file);
   }
 
+  function handleClick() {
+    inputRef.current?.click();
+  }
+
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) onUpload(file);
+  }
+
   return (
-    <Card
-      className={`w-full max-w-lg border-2 border-dashed cursor-pointer transition-all ${
-        isDragging ? "border-primary bg-primary/5" : "border-border hover:border-muted-foreground"
-      }`}
+    <div
+      onClick={handleClick}
       onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
       onDragLeave={() => setIsDragging(false)}
       onDrop={handleDrop}
-      onClick={() => document.getElementById("fileInput")?.click()}
+      className={`w-full max-w-lg border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-all ${
+        isDragging
+          ? "border-blue-500 bg-blue-500/10"
+          : "border-zinc-700 hover:border-zinc-500 bg-zinc-900"
+      }`}
     >
-      <CardContent className="p-12 text-center">
-        {isUploading ? (
-          <p className="text-muted-foreground">Uploading...</p>
-        ) : (
-          <>
-            <p className="text-lg font-medium mb-2">Drop your dataset here</p>
-            <p className="text-sm text-muted-foreground mb-4">
-              CSV, Excel (.xlsx, .xls)
-            </p>
-            <Button variant="secondary" size="sm">Browse files</Button>
-          </>
-        )}
-        <input
-          id="fileInput"
-          type="file"
-          accept=".csv,.xlsx,.xls"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) onUpload(file);
-          }}
-          className="hidden"
-        />
-      </CardContent>
-    </Card>
+      {isUploading ? (
+        <p className="text-zinc-400">Uploading...</p>
+      ) : (
+        <>
+          <p className="text-lg font-medium mb-2 text-white">Drop your dataset here</p>
+          <p className="text-sm text-zinc-500 mb-4">CSV, Excel (.xlsx, .xls)</p>
+          <span className="inline-block px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white text-sm rounded-lg border border-zinc-600">
+            Browse files
+          </span>
+        </>
+      )}
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".csv,.xlsx,.xls"
+        onChange={handleChange}
+        className="hidden"
+      />
+    </div>
   );
 }

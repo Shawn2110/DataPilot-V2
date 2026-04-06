@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { FileUpload } from "@/components/home/FileUpload";
 import { Card, CardContent } from "@/components/ui/card";
+import { saveProject } from "@/lib/db";
 
 export default function Home() {
   const router = useRouter();
@@ -29,6 +30,17 @@ export default function Home() {
       }
 
       const data = await res.json();
+
+      // Save project to IndexedDB (persists across browser restarts)
+      await saveProject({
+        id: data.session_id,
+        name: file.name,
+        sessionId: data.session_id,
+        createdAt: new Date().toISOString(),
+        dataContext: data.data_info,
+        dataFileName: file.name,
+      }).catch(() => {});
+
       router.push(`/workspace?session=${data.session_id}`);
     } catch (err: any) {
       setError(err.message || "Upload failed");

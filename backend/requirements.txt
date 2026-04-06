@@ -6,10 +6,14 @@ sse-starlette>=2.0.0
 
 # --- AI Agent ---
 langchain>=0.3.0
-langchain-ollama>=0.3.0
 langchain-core>=0.3.0
 langgraph>=1.0.0
 langgraph-prebuilt>=1.0.0
+
+# --- LLM Providers (all three supported, user picks one) ---
+langchain-cerebras>=0.4.0   # Default — free, fastest, best code accuracy
+langchain-groq>=0.2.0       # Fallback — free, fast, more model variety
+langchain-ollama>=0.3.0     # Offline — local, needs RAM
 
 # --- Jupyter Integration ---
 jupyter-client>=8.6.0
