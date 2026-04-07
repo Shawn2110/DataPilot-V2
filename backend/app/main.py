@@ -17,7 +17,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import STORAGE_DIR, UPLOADS_DIR, NOTEBOOKS_DIR
-from app.routers import chat, upload, kernel
+from app.routers import chat, upload, kernel, execute
 
 
 @asynccontextmanager
@@ -47,6 +47,7 @@ app.add_middleware(
 app.include_router(chat.router, prefix="/api", tags=["Chat"])
 app.include_router(upload.router, prefix="/api", tags=["Upload"])
 app.include_router(kernel.router, prefix="/api", tags=["Kernel"])
+app.include_router(execute.router, prefix="/api", tags=["Execute"])
 
 
 @app.get("/health")
