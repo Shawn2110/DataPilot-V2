@@ -18,7 +18,13 @@ interface Message {
  * ChatSidebar — The chat panel next to JupyterLab.
  * Built with shadcn/ui components for a polished look.
  */
-export function ChatSidebar({ sessionId }: { sessionId: string }) {
+export function ChatSidebar({
+  sessionId,
+  onCodeGenerated,
+}: {
+  sessionId: string;
+  onCodeGenerated?: (code: string) => void;
+}) {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "welcome",
@@ -102,6 +108,7 @@ export function ChatSidebar({ sessionId }: { sessionId: string }) {
               const event = JSON.parse(trimmed.slice(6));
               if (event.type === "code") {
                 addMessage("code", event.content);
+                onCodeGenerated?.(event.content);
               } else if (event.type === "message" && event.content?.trim()) {
                 addMessage("assistant", event.content);
               } else if (event.type === "thinking") {
@@ -121,9 +128,9 @@ export function ChatSidebar({ sessionId }: { sessionId: string }) {
   }
 
   return (
-    <div className="flex flex-col h-full bg-background text-foreground">
+    <div className="flex flex-col h-full overflow-hidden bg-background text-foreground">
       {/* Header */}
-      <div className="p-4 border-b">
+      <div className="shrink-0 p-4 border-b">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-bold">
             Data<span className="text-primary">Pilot</span>
@@ -133,8 +140,8 @@ export function ChatSidebar({ sessionId }: { sessionId: string }) {
         <p className="text-xs text-muted-foreground mt-1">AI Data Science Copilot</p>
       </div>
 
-      {/* Messages */}
-      <ScrollArea className="flex-1 p-4">
+      {/* Messages — scroll inside this container, not the page */}
+      <ScrollArea className="flex-1 min-h-0 p-4">
         <div className="space-y-3">
           {messages.map((msg) => {
             if (msg.role === "user") {
@@ -197,7 +204,7 @@ export function ChatSidebar({ sessionId }: { sessionId: string }) {
       <Separator />
 
       {/* Input */}
-      <div className="p-3 flex gap-2">
+      <div className="shrink-0 p-3 flex gap-2">
         <input
           type="text"
           value={input}
