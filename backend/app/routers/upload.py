@@ -80,6 +80,15 @@ async def upload_file(
     session.data_context = {"df": data_info}
     session.uploaded_files.append(str(file_path))
 
+    # Create notebook for this session in JupyterLab's working directory
+    # JupyterLab serves from backend/storage/, so notebooks go in storage/work/
+    from app.jupyter.notebook_manager import create_blank_notebook
+    jupyter_nb_dir = UPLOADS_DIR.parent / "work"
+    jupyter_nb_dir.mkdir(parents=True, exist_ok=True)
+    notebook_path = str(jupyter_nb_dir / f"{session.session_id}.ipynb")
+    create_blank_notebook(notebook_path)
+    session.notebook_path = notebook_path
+
     # Generate the load code that will be inserted into the notebook
     load_code = f"""import pandas as pd
 
