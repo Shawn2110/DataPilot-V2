@@ -22,7 +22,6 @@ from app.config import (
 )
 from app.agent.prompts import SYSTEM_PROMPT
 from app.agent.tools import (
-    generate_code,
     read_dataframe_info,
     create_visualization,
     train_model,
@@ -75,7 +74,6 @@ def build_agent():
     llm = _create_llm()
 
     tools = [
-        generate_code,
         read_dataframe_info,
         create_visualization,
         train_model,
