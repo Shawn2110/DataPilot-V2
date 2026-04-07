@@ -71,15 +71,14 @@ async def chat(req: ChatRequest):
             system_msg = get_system_message(data_context, notebook_summary)
             messages = [system_msg]
 
-            # Add recent chat history for context (last 10 messages)
+            # Add recent chat history for context
             for msg in session.chat_history[-10:]:
                 if msg["role"] == "user":
                     messages.append(HumanMessage(content=msg["content"]))
 
-            collected_code = []
-            collected_text = []
+            # Collect the full response, then parse text vs code blocks
+            full_text = []
 
-            # Stream agent events
             async for event in agent.astream_events(
                 {"messages": messages},
                 version="v2",
@@ -90,62 +89,49 @@ async def chat(req: ChatRequest):
                     tool_name = event.get("name", "")
                     yield {
                         "event": "message",
-                        "data": json.dumps({
-                            "type": "thinking",
-                            "content": f"Using {tool_name}...",
-                        }),
+                        "data": json.dumps({"type": "thinking", "content": f"Using {tool_name}..."}),
                     }
 
                 elif kind == "on_tool_end":
-                    output = event.get("data", {}).get("output", "")
-                    output_str = str(output)
-
-                    # Check if the output looks like Python code
-                    if _looks_like_code(output_str):
-                        collected_code.append(output_str)
+                    output_data = event.get("data", {}).get("output", "")
+                    # Extract just the content string from ToolMessage
+                    if hasattr(output_data, "content"):
+                        output = str(output_data.content)
+                    else:
+                        output = str(output_data)
+                    # Clean up escaped newlines
+                    output = output.replace("\\n", "\n")
+                    if _looks_like_code(output):
                         yield {
                             "event": "message",
-                            "data": json.dumps({
-                                "type": "code",
-                                "content": output_str,
-                            }),
+                            "data": json.dumps({"type": "code", "content": output}),
                         }
 
                 elif kind == "on_chat_model_stream":
                     chunk = event.get("data", {}).get("chunk", None)
                     if chunk and hasattr(chunk, "content") and chunk.content:
-                        text = str(chunk.content)
-                        if text.strip():
-                            collected_text.append(text)
-                            yield {
-                                "event": "message",
-                                "data": json.dumps({
-                                    "type": "message",
-                                    "content": text,
-                                }),
-                            }
+                        full_text.append(str(chunk.content))
 
-            # Save assistant response to history
-            full_response = "".join(collected_text)
+            # Parse the full response — separate text from ```python code blocks
+            full_response = "".join(full_text)
             if full_response:
                 session.chat_history.append({"role": "assistant", "content": full_response})
+                parts = _split_code_blocks(full_response)
+                for part in parts:
+                    yield {
+                        "event": "message",
+                        "data": json.dumps(part),
+                    }
 
-            # Send done event
             yield {
                 "event": "message",
-                "data": json.dumps({
-                    "type": "done",
-                    "session_id": session.session_id,
-                }),
+                "data": json.dumps({"type": "done", "session_id": session.session_id}),
             }
 
         except Exception as e:
             yield {
                 "event": "message",
-                "data": json.dumps({
-                    "type": "error",
-                    "content": str(e),
-                }),
+                "data": json.dumps({"type": "error", "content": str(e)}),
             }
 
     return EventSourceResponse(event_stream())
@@ -158,6 +144,48 @@ async def get_chat_history(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     return {"messages": session.chat_history}
+
+
+def _split_code_blocks(text: str) -> list[dict]:
+    """
+    Split a response into text and code parts.
+
+    Input:  "Here's the code:\n```python\nimport pandas\n```\nDone!"
+    Output: [
+        {"type": "message", "content": "Here's the code:"},
+        {"type": "code", "content": "import pandas"},
+        {"type": "message", "content": "Done!"},
+    ]
+    """
+    import re
+    parts = []
+    # Split on ```python ... ``` or ``` ... ``` blocks
+    pattern = r"```(?:python)?\s*\n(.*?)```"
+    last_end = 0
+
+    for match in re.finditer(pattern, text, re.DOTALL):
+        # Text before the code block
+        before = text[last_end:match.start()].strip()
+        if before:
+            parts.append({"type": "message", "content": before})
+
+        # The code block itself
+        code = match.group(1).strip()
+        if code:
+            parts.append({"type": "code", "content": code})
+
+        last_end = match.end()
+
+    # Text after the last code block
+    after = text[last_end:].strip()
+    if after:
+        parts.append({"type": "message", "content": after})
+
+    # If no code blocks found, return as plain message
+    if not parts:
+        parts.append({"type": "message", "content": text.strip()})
+
+    return parts
 
 
 def _looks_like_code(text: str) -> bool:
