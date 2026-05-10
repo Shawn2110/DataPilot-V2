@@ -15,7 +15,7 @@ import re
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from app.agent.intents import IntentResult
-from app.agent.llm import get_llm
+from app.agent.llm import get_llm, LLMConfig
 
 
 _SYSTEM = """You generate Python code for a Jupyter notebook session.
@@ -39,8 +39,13 @@ def _strip_fences(text: str) -> str:
     return text.strip()
 
 
-def generate(user_text: str, columns: list[str], df_name: str = "df") -> IntentResult:
-    llm = get_llm()
+def generate(
+    user_text: str,
+    columns: list[str],
+    df_name: str = "df",
+    llm_config: LLMConfig | None = None,
+) -> IntentResult:
+    llm = get_llm(llm_config)
     schema_hint = f"df has columns: {columns}" if columns else "df is not loaded yet."
 
     response = llm.invoke([

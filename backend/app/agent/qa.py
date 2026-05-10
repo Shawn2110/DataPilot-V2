@@ -11,7 +11,7 @@ from __future__ import annotations
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
 from app.agent.intents import IntentResult
-from app.agent.llm import get_llm
+from app.agent.llm import get_llm, LLMConfig
 
 
 _SYSTEM = """You are DataPilot's explainer. Answer the user's question in 1-3 short sentences.
@@ -24,8 +24,13 @@ Rules:
 """
 
 
-def answer(user_text: str, chat_history: list[dict], columns: list[str]) -> IntentResult:
-    llm = get_llm(temperature=0.2)
+def answer(
+    user_text: str,
+    chat_history: list[dict],
+    columns: list[str],
+    llm_config: LLMConfig | None = None,
+) -> IntentResult:
+    llm = get_llm(llm_config, temperature=0.2)
 
     messages = [SystemMessage(content=_SYSTEM)]
     if columns:
