@@ -7,7 +7,20 @@ import * as path from "path";
  *   POST /api/chat   — single-shot JSON ({explanation, code, source})
  *   POST /api/upload — upload a dataset file
  *   GET  /health     — health check
+ *
+ * Per-request LLM config (provider/model/key) is sent on
+ * X-Datapilot-* headers so the backend is stateless w.r.t. credentials.
+ * The key is read fresh from a callback each call — never cached on this client.
  */
+
+export interface LLMHeaders {
+  provider?: string;
+  model?: string;
+  apiKey?: string;
+  apiBase?: string;
+}
+
+export type LLMHeadersProvider = () => Promise<LLMHeaders | null> | LLMHeaders | null;
 
 export type ChatSource = "template" | "codegen" | "qa";
 
@@ -31,7 +44,10 @@ export interface UploadResponse {
 }
 
 export class BackendClient {
-  constructor(private baseUrl: string) {}
+  constructor(
+    private baseUrl: string,
+    private getLLMHeaders: LLMHeadersProvider = () => null
+  ) {}
 
   async health(): Promise<boolean> {
     try {
@@ -43,9 +59,18 @@ export class BackendClient {
   }
 
   async chat(sessionId: string | null, message: string): Promise<ChatResponse> {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    const llm = await this.getLLMHeaders();
+    if (llm?.provider) headers["X-Datapilot-Provider"] = llm.provider;
+    if (llm?.model) headers["X-Datapilot-Model"] = llm.model;
+    if (llm?.apiKey) headers["X-Datapilot-Api-Key"] = llm.apiKey;
+    if (llm?.apiBase) headers["X-Datapilot-Api-Base"] = llm.apiBase;
+
     const res = await fetch(`${this.baseUrl}/api/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({ session_id: sessionId, message }),
     });
 
