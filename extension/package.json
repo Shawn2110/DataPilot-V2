@@ -21,6 +21,10 @@
       {
         "command": "datapilot.openChat",
         "title": "DataPilot: Open Chat"
+      },
+      {
+        "command": "datapilot.configure",
+        "title": "DataPilot: Configure Provider / API Key"
       }
     ],
     "viewsContainers": {
@@ -47,12 +51,20 @@
         "datapilot.backendUrl": {
           "type": "string",
           "default": "http://localhost:8000",
-          "description": "URL of the DataPilot backend server"
+          "description": "URL of the DataPilot backend server."
         },
-        "datapilot.ollamaModel": {
+        "datapilot.provider": {
           "type": "string",
-          "default": "llama3.1",
-          "description": "Ollama model to use"
+          "enum": ["cerebras", "groq", "ollama"],
+          "description": "LLM provider. Set via 'DataPilot: Configure Provider / API Key'."
+        },
+        "datapilot.model": {
+          "type": "string",
+          "description": "Model name for the chosen provider."
+        },
+        "datapilot.apiBase": {
+          "type": "string",
+          "description": "Base URL for the provider (used by Ollama; defaults to http://localhost:11434)."
         }
       }
     }
