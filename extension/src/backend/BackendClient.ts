@@ -2,18 +2,20 @@ import * as fs from "fs";
 import * as path from "path";
 
 /**
- * BackendClient — HTTP + SSE client for the FastAPI backend.
+ * BackendClient — HTTP client for the FastAPI backend.
  *
- * Handles:
- *   - POST /api/chat (SSE stream) — send message, stream response
- *   - POST /api/upload — upload dataset file
- *   - GET /health — check backend is alive
+ *   POST /api/chat   — single-shot JSON ({explanation, code, source})
+ *   POST /api/upload — upload a dataset file
+ *   GET  /health     — health check
  */
 
-export interface SSEEvent {
-  type: "thinking" | "code" | "message" | "error" | "done";
-  content?: string;
-  session_id?: string;
+export type ChatSource = "template" | "codegen" | "qa";
+
+export interface ChatResponse {
+  session_id: string;
+  explanation: string;
+  code: string | null;
+  source: ChatSource;
 }
 
 export interface UploadResponse {
@@ -40,58 +42,19 @@ export class BackendClient {
     }
   }
 
-  /**
-   * Send a chat message and read the SSE stream.
-   *
-   * The callback is called for each SSE event:
-   *   - {type: "thinking", content: "..."} — agent is reasoning
-   *   - {type: "code", content: "import pandas..."} — generated code
-   *   - {type: "message", content: "Here's your plot."} — text response
-   *   - {type: "done"} — stream finished
-   */
-  async chat(
-    sessionId: string | null,
-    message: string,
-    onEvent: (event: SSEEvent) => void
-  ): Promise<void> {
+  async chat(sessionId: string | null, message: string): Promise<ChatResponse> {
     const res = await fetch(`${this.baseUrl}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        session_id: sessionId,
-        message,
-      }),
+      body: JSON.stringify({ session_id: sessionId, message }),
     });
 
-    if (!res.ok || !res.body) {
-      onEvent({ type: "error", content: `Backend error: ${res.statusText}` });
-      return;
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`backend ${res.status}: ${body || res.statusText}`);
     }
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed.startsWith("data: ")) {
-          try {
-            const event: SSEEvent = JSON.parse(trimmed.slice(6));
-            onEvent(event);
-          } catch {
-            // Malformed JSON — skip
-          }
-        }
-      }
-    }
+    return (await res.json()) as ChatResponse;
   }
 
   /**
