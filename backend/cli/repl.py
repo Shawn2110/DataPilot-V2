@@ -10,10 +10,12 @@ Each turn:
 
 REPL commands (typed at the prompt):
   /upload <path>   load a CSV into the kernel as `df`
+  /save [path]     export the session to a Jupyter .ipynb
   /columns         list the loaded columns
+  /provider        switch LLM provider/key
   /clear           clear the screen
   /history         dump the chat transcript
-  /exit, /quit     leave (Ctrl-D also works)
+  /exit, /quit     leave (Ctrl-D also works) — prompts to save if unsaved
 """
 
 from __future__ import annotations
@@ -77,9 +79,29 @@ class Repl:
                     continue
 
                 self._handle_turn(text)
+            self._maybe_save_on_exit()
         finally:
             self.session.close()
         return 0
+
+    def _maybe_save_on_exit(self) -> None:
+        """If the user did real work, offer to export the session as a notebook."""
+        if not self.session.turns:
+            return
+        try:
+            answer = self._prompt(
+                f"save {len(self.session.turns)} turns to a notebook? [Y/n] "
+            ).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            return
+        if answer in ("n", "no"):
+            return
+        try:
+            path = self.session.save_notebook()
+        except Exception as e:
+            self.console.print(f"[red]save failed:[/red] {e}")
+            return
+        self.console.print(f"[green]saved[/green] {path}")
 
     # --- Slash commands ---
 
@@ -101,6 +123,19 @@ class Repl:
                 self.console.print("[red]usage:[/red] /upload <path-to-csv>")
                 return True
             self._upload(Path(args[0]))
+            return True
+
+        if cmd == "/save":
+            target = Path(args[0]) if args else None
+            if not self.session.turns:
+                self.console.print("[dim]nothing to save yet[/dim]")
+                return True
+            try:
+                path = self.session.save_notebook(target)
+            except Exception as e:
+                self.console.print(f"[red]save failed:[/red] {e}")
+                return True
+            self.console.print(f"[green]saved[/green] {path}")
             return True
 
         if cmd == "/provider":
@@ -173,6 +208,7 @@ class Repl:
                 border_style="blue",
                 padding=(0, 1),
             ))
+            self.session.record_turn(text, result)
             return
 
         self.console.print(f"  {badge}  {result.explanation}")
@@ -180,6 +216,7 @@ class Repl:
 
         choice = self._ask_run_choice()
         if choice == "n":
+            self.session.record_turn(text, result)
             return
 
         code = result.code
@@ -187,10 +224,12 @@ class Repl:
             edited = self._edit(code)
             if edited is None:
                 self.console.print("[dim]cancelled[/dim]")
+                self.session.record_turn(text, result)
                 return
             code = edited
 
-        self._run(code)
+        execution = self._run(code)
+        self.session.record_turn(text, result, executed_code=code, execution=execution)
 
     def _ask_run_choice(self) -> str:
         try:
@@ -228,12 +267,12 @@ class Repl:
             except OSError:
                 pass
 
-    def _run(self, code: str) -> None:
+    def _run(self, code: str):
         try:
             res = self.session.run_code(code)
         except Exception as e:
             self.console.print(f"[red]kernel error:[/red] {e}")
-            return
+            return None
 
         if res.stdout:
             self.console.print(res.stdout.rstrip())
@@ -244,7 +283,8 @@ class Repl:
         if res.error:
             self.console.print(Panel(res.error, border_style="red", title="error"))
         if res.images:
-            self.console.print(f"[dim]({len(res.images)} image output(s) — not rendered in terminal)[/dim]")
+            self.console.print(f"[dim]({len(res.images)} image output(s) - not rendered in terminal)[/dim]")
+        return res
 
     # --- Cosmetic ---
 
