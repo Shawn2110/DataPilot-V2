@@ -29,6 +29,7 @@ from rich.syntax import Syntax
 from rich.panel import Panel
 from rich.text import Text
 
+from cli import config as cfg_mod
 from cli.session import CliSession
 
 
@@ -102,6 +103,14 @@ class Repl:
             self._upload(Path(args[0]))
             return True
 
+        if cmd == "/provider":
+            existing = cfg_mod.load_from_file()
+            new_cfg = cfg_mod.interactive_setup(default=existing)
+            cfg_mod.save_to_file(new_cfg)
+            cfg_mod.apply_to_env(new_cfg)
+            self.console.print(f"[green]switched to[/green] {new_cfg.provider}/{new_cfg.model}")
+            return True
+
         if cmd == "/columns":
             if not self.session.columns:
                 self.console.print("[dim]no data loaded — try /upload <file.csv>[/dim]")
@@ -136,7 +145,7 @@ class Repl:
         if len(info["columns"]) > 8:
             cols_preview += f", … ({len(info['columns']) - 8} more)"
         self.console.print(
-            f"[green]loaded[/green] {info['rows']:,} rows × {len(info['columns'])} cols  "
+            f"[green]loaded[/green] {info['rows']:,} rows x {len(info['columns'])} cols  "
             f"[dim]({cols_preview})[/dim]"
         )
 
@@ -241,7 +250,7 @@ class Repl:
 
     def _print_banner(self) -> None:
         self.console.print(Panel.fit(
-            "[bold]DataPilot[/bold] [dim]· data science copilot[/dim]\n"
-            "[dim]/upload <file.csv>  ·  /columns  ·  /history  ·  /exit[/dim]",
+            "[bold]DataPilot[/bold] [dim]- data science copilot[/dim]\n"
+            "[dim]/upload <file.csv>  /provider  /columns  /history  /exit[/dim]",
             border_style="green",
         ))
