@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "datapilot"
+version = "2.0.0"
+description = "Chat-driven AI data science copilot — VS Code extension + CLI."
+requires-python = ">=3.11"
+authors = [{ name = "Shawn2110" }]
+
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.29.0",
+    "python-multipart>=0.0.9",
+    "sse-starlette>=2.0.0",
+    "langchain>=0.3.0",
+    "langchain-core>=0.3.0",
+    "langchain-cerebras>=0.4.0",
+    "langchain-groq>=0.2.0",
+    "langchain-ollama>=0.3.0",
+    "jupyter-client>=8.6.0",
+    "nbformat>=5.10.0",
+    "pandas>=2.0.0",
+    "numpy>=1.26.0",
+    "scikit-learn>=1.4.0",
+    "plotly>=5.20.0",
+    "python-dotenv>=1.0.0",
+    "httpx>=0.27.0",
+    "websockets>=12.0",
+    "rich>=13.7.0",
+    "prompt_toolkit>=3.0.43",
+]
+
+[project.scripts]
+datapilot = "cli.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*", "cli*"]
