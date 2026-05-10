@@ -14,13 +14,31 @@ Response shape:
     }
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from app.agent.llm import LLMConfig
 from app.agent.pipeline import run as pipeline_run
 from app.services.session import get_session, create_session
 
 router = APIRouter()
+
+
+def _llm_config_from_headers(request: Request) -> LLMConfig | None:
+    """Pull provider/key/model overrides off X-Datapilot-* headers.
+
+    The api key, if present, is used for this single request only — never
+    logged, never persisted, never echoed back. Returns None when no
+    header is set so the env defaults take over.
+    """
+    h = request.headers
+    provider = h.get("x-datapilot-provider")
+    model = h.get("x-datapilot-model")
+    api_key = h.get("x-datapilot-api-key")
+    api_base = h.get("x-datapilot-api-base")
+    if not any([provider, model, api_key, api_base]):
+        return None
+    return LLMConfig(provider=provider, model=model, api_key=api_key, api_base=api_base)
 
 
 class ChatRequest(BaseModel):
@@ -36,7 +54,7 @@ class ChatResponse(BaseModel):
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat(req: ChatRequest) -> ChatResponse:
+async def chat(req: ChatRequest, request: Request) -> ChatResponse:
     if req.session_id:
         session = get_session(req.session_id)
         if not session:
@@ -51,10 +69,12 @@ async def chat(req: ChatRequest) -> ChatResponse:
 
     session.chat_history.append({"role": "user", "content": req.message})
 
+    llm_config = _llm_config_from_headers(request)
     result = pipeline_run(
         text=req.message,
         columns=columns,
         chat_history=session.chat_history,
+        llm_config=llm_config,
     )
 
     # Record the assistant turn for QA continuity.
