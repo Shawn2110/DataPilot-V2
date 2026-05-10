@@ -25,3 +25,16 @@ Thumbs.db
 backend/.env
 .env
 backend/storage/
+
+# Python packaging
+*.egg-info/
+backend/datapilot.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Extension packaging
+*.vsix
+
+# Generated CLI session transcripts
+datapilot_session_*.ipynb
