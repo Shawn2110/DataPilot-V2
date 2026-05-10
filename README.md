@@ -1,256 +1,229 @@
 # DataPilot
 
-**AI-Powered Data Science Copilot for VS Code**
+**A chat-driven data science copilot.** Type what you want in plain English, get the right Python code in your notebook — generated deterministically when possible, and only falling back to an LLM when the request is novel.
 
-DataPilot automates the full machine learning workflow inside VS Code. Upload a CSV, and an AI agent runs a complete ML pipeline — from data profiling to model training to SHAP explainability — with real-time progress streaming.
+DataPilot ships in two forms:
 
-Built with a custom **ReAct agent** (LangGraph + Ollama), it reasons through each step, adapts to your data, and explains its decisions in plain language. **Completely free** — runs locally using Llama 3.1 via Ollama.
+- **`datapilot` CLI** — terminal REPL with a stateful Jupyter kernel. Upload a CSV, ask questions, run code, export the whole transcript as a `.ipynb` (uploadable to Kaggle / Colab / Jupyter).
+- **VS Code extension** — chat sidebar that drops generated code into the notebook you already have open.
 
----
-
-## What It Does
-
-```
-Upload CSV/Excel
-      |
-      v
-  +---+---+---+---+---+---+---+---+
-  | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |  <- AI Agent runs 8 steps automatically
-  +---+---+---+---+---+---+---+---+
-    |   |   |   |   |   |   |   |
-    |   |   |   |   |   |   |   +-- SHAP Explainability
-    |   |   |   |   |   |   +------ Model Evaluation
-    |   |   |   |   |   +---------- Model Training (4 models, 5-fold CV)
-    |   |   |   |   +-------------- Feature Engineering
-    |   |   |   +------------------ Preprocessing (impute, scale, encode)
-    |   |   +---------------------- EDA (distributions, outliers, correlations)
-    |   +-------------------------- Data Profiling (quality report)
-    +------------------------------ Problem Detection (classification vs regression)
-      |
-      v
-  Downloadable: HTML Report + Trained Model (.joblib)
-```
-
-## Features
-
-- **Automatic ML Pipeline** — 8-step pipeline from raw data to explainable model
-- **AI Reasoning** — Agent thinks at each step, adapts to data quality issues
-- **Real-time Progress** — SSE streaming shows pipeline steps as they happen
-- **Interactive Charts** — EDA distributions, correlation heatmaps, model comparison
-- **SHAP Explainability** — Understand why the model makes each prediction
-- **Free & Local** — Llama 3.1 via Ollama, no API keys, no cloud costs
-- **Downloadable Outputs** — HTML report, trained model (.joblib), preprocessing pipeline
-
-## Models Trained
-
-| Task | Models |
-|------|--------|
-| Classification | Logistic Regression, Random Forest, XGBoost, LightGBM |
-| Regression | Linear Regression, Random Forest, XGBoost, LightGBM |
-
-All models evaluated with **5-fold cross-validation**. Best model selected automatically.
+Both share the same agent. Bring your own API key — Cerebras (recommended, free, fast), Groq, or local Ollama — and your key never leaves your machine.
 
 ---
 
-## Prerequisites
+## How it works
 
-- **VS Code** 1.85+
-- **Python** 3.10+
-- **Node.js** 18+
-- **Ollama** — [Download here](https://ollama.com/download)
-
-## Quick Start
-
-### 1. Install Ollama and pull a model
-
-```bash
-# Install Ollama from https://ollama.com/download
-# Then pull Llama 3.1 (4.9 GB download, runs on 8GB+ RAM):
-ollama pull llama3.1
+```
+User: "plot age vs salary"
+        |
+        v
+[IntentRouter — pure Python, no LLM]
+   matches `plot X vs Y` pattern, validates columns
+        |
+        v
+[Template: scatter] -> deterministic Python snippet
+        |
+        v
+[Kernel.execute]    -> live output in your terminal / notebook
 ```
 
-### 2. Clone and install
+There are three tiers:
+
+| Tier      | When it runs                            | LLM tokens |
+|-----------|-----------------------------------------|------------|
+| `template` | ~17 common DS verbs (head, shape, describe, missing, plot X, plot X vs Y, train classifier, encode, scale, …) | **0** |
+| `qa`       | Questions ending in `?`, "what / why / how / explain" | 1 call (text only) |
+| `codegen`  | Anything the templates don't cover      | 1 call (code + explanation) |
+
+Most sessions cost zero tokens. The LLM is reserved for the hard parts.
+
+---
+
+## Install — CLI
 
 ```bash
-git clone https://github.com/Shawn2110/DataPilot.git
-cd DataPilot
+pip install git+https://github.com/Shawn2110/DataPilot-V2.git#subdirectory=backend
+```
 
-# Install extension dependencies
+That installs the `datapilot` command on your PATH plus everything it needs (FastAPI, LangChain, jupyter-client, pandas, scikit-learn, plotly, rich, prompt-toolkit).
+
+First run will prompt for a provider + API key:
+
+```bash
+datapilot
+```
+
+```
+DataPilot — first-run configuration
+Pick an LLM provider:
+  1) cerebras  · cloud, free, very fast (recommended)
+  2) groq      · cloud, free, more model variety
+  3) ollama    · local, no key, needs RAM and a running Ollama server
+
+choice [1/2/3] (default cerebras):
+```
+
+Your choice is saved to `~/.datapilot/config.json` (0600 on POSIX). Skip the prompt later by passing flags:
+
+```bash
+datapilot --provider cerebras --api-key csk-... --model llama3.1-8b
+datapilot config              # rerun the prompt to change provider
+datapilot upload data.csv     # open REPL with df preloaded
+```
+
+Get a free Cerebras key at https://cloud.cerebras.ai (no credit card).
+
+### Inside the REPL
+
+```
+> /upload sales.csv
+loaded 12,847 rows x 18 cols  (Date, Region, Product, Price, Quantity, ...)
+
+> show missing values
+  template  Count missing values per column in `df`, sorted from worst to best.
+  _missing = df.isnull().sum().sort_values(ascending=False)
+  _missing[_missing > 0]
+run? [Y/n/e] y
+  Discount     1247
+  CustomerID    312
+  dtype: int64
+
+> what does sort_values(ascending=False) do?
+[qa] Sorts the values from largest to smallest. Used here so the columns
+with the most missing data appear at the top, making it easy to spot the
+worst offenders first.
+
+> /save analysis.ipynb
+saved C:\Users\you\analysis.ipynb
+```
+
+Slash commands:
+
+| Command | What it does |
+|---|---|
+| `/upload <path>` | Read a CSV into the kernel as `df` |
+| `/save [path]` | Export the session as a Jupyter notebook |
+| `/provider` | Switch provider/key mid-session |
+| `/columns` | List the loaded DataFrame's columns |
+| `/history` | Dump the chat transcript |
+| `/clear` | Clear the terminal |
+| `/exit` | Quit (prompts to save first) |
+
+---
+
+## Install — VS Code extension
+
+The extension isn't on the Marketplace yet. Install from the `.vsix`:
+
+```bash
+git clone https://github.com/Shawn2110/DataPilot-V2.git
+cd DataPilot-V2/extension
 npm install
-
-# Install Python dependencies
-pip install -r backend/requirements.txt
-
-# Install webview dependencies
-cd webview-ui && npm install && cd ..
+npx vsce package --allow-missing-repository
+code --install-extension datapilot-2.0.0.vsix
 ```
 
-### 3. Build
+(Or build the .vsix on one machine and send it around — it's ~27 KB.)
+
+You also need the backend running:
 
 ```bash
-# Build the VS Code extension
-npm run build:ext
-
-# Build the React webview
-npm run build:webview
+cd backend
+pip install -e .                              # one-time
+python -m uvicorn app.main:app --port 8000    # leave this running
 ```
 
-### 4. Run
+Then in VS Code:
 
-1. Open the `DataPilot` folder in VS Code
-2. Press **F5** to launch the extension in debug mode
-3. Click the **DataPilot icon** in the left sidebar
-4. Click **Upload Dataset** and select a CSV file
-5. Choose a target column (or let the agent detect it)
-6. Click **Analyze** and watch the AI pipeline run
+1. Open any `.ipynb` (the extension only activates on Jupyter notebooks)
+2. The DataPilot icon appears in the activity bar — click it to open the chat
+3. First time: VS Code's command palette shows **DataPilot: Configure Provider / API Key** — pick provider, paste key
+4. Type prompts in the sidebar; generated code lands in your notebook cells
+
+The API key is stored in **VS Code SecretStorage** (OS keychain — Credential Manager on Windows, Keychain on macOS). It is never written to settings, never logged, and only sent to your local backend over `X-Datapilot-Api-Key`.
 
 ---
 
-## Architecture
+## Provider matrix
 
-DataPilot has three layers:
+| Provider | Cost | Speed | Setup | Default model |
+|---|---|---|---|---|
+| **Cerebras** | Free tier | Fastest (~2500 tok/s) | API key from https://cloud.cerebras.ai | `llama3.1-8b` |
+| **Groq** | Free tier | Fast | API key from https://console.groq.com | `llama-3.3-70b-versatile` |
+| **Ollama** | Free, local | Depends on RAM | `ollama pull llama3.2:1b` + run `ollama serve` | `llama3.2:1b` |
 
-```
-[React Webview]  <--postMessage-->  [VS Code Extension]  <--HTTP/SSE-->  [Python FastAPI]
-     (UI)              (bridge)             (ML + AI Agent)
-```
-
-| Layer | Technology | Role |
-|-------|-----------|------|
-| **Extension** | TypeScript + VS Code API | Spawns Python server, manages webview, bridges communication |
-| **Webview** | React + Tailwind + Recharts | Interactive UI with charts, progress tracker, agent log |
-| **Backend** | FastAPI + LangGraph + Ollama | ML pipeline, ReAct agent, SHAP analysis, report generation |
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the full technical deep-dive.
-
-## Project Structure
-
-```
-DataPilot/
-+-- src/                          # VS Code Extension (TypeScript)
-|   +-- extension.ts              # Entry point
-|   +-- sidecar/                  # Python process management
-|   +-- webview/                  # Webview panel + message handler
-|
-+-- webview-ui/                   # React Frontend
-|   +-- src/components/           # UI components (Upload, Charts, SHAP, etc.)
-|
-+-- backend/                      # Python Backend
-|   +-- agent/                    # LangGraph ReAct agent
-|   +-- tools/                    # 8 pipeline tools
-|   +-- routers/                  # FastAPI endpoints
-|   +-- pipeline/                 # Shared state
-|   +-- report/                   # HTML report generator
-|
-+-- package.json                  # Extension manifest
-```
+Switch any time via `datapilot config`, `/provider` in the REPL, or `DataPilot: Configure Provider / API Key` in VS Code.
 
 ---
 
-## Configuration
-
-DataPilot settings are available in VS Code Settings (Ctrl+,):
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `datapilot.pythonPath` | `python` | Path to Python interpreter |
-| `datapilot.ollamaModel` | `llama3.1` | Ollama model to use |
-| `datapilot.ollamaUrl` | `http://localhost:11434` | Ollama server URL |
-
-### Alternative models (all free via Ollama)
-
-```bash
-ollama pull mistral        # Mistral 7B — fast, good reasoning
-ollama pull qwen2.5        # Alibaba Qwen 2.5 — strong at structured tasks
-ollama pull llama3.1:70b   # Llama 3.1 70B — smarter, needs ~40GB RAM
-```
-
-Then set `datapilot.ollamaModel` to the model name.
-
----
-
-## API Endpoints
-
-The Python sidecar exposes these endpoints (internal, used by the extension):
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/health` | Health check (extension polls this on startup) |
-| `POST` | `/upload-dataset` | Upload CSV/Excel, returns preview |
-| `POST` | `/projects/create` | Create project, configure pipeline |
-| `POST` | `/projects/{id}/analyze` | Run pipeline, returns SSE event stream |
-| `GET` | `/projects/{id}/results` | Get final pipeline results |
-| `POST` | `/projects/{id}/predict` | Run inference with trained model |
-
----
-
-## How the AI Agent Works
-
-DataPilot uses the **ReAct pattern** (Reason + Act):
+## Project layout
 
 ```
-Agent: "I need to detect the problem type first."          <- THINK
-Agent: calls detect_problem tool                            <- ACT
-Tool:  returns {target: "Survived", task: "classification"} <- OBSERVE
-Agent: "This is binary classification. 38% survived,        <- THINK
-        62% did not. The classes are imbalanced.
-        Now I should profile the data quality."
-Agent: calls profile_data tool                              <- ACT
-Tool:  returns {missing: {Age: 19.8%}, duplicates: 0}       <- OBSERVE
-Agent: "Age has 19.8% missing values. I'll impute with      <- THINK
-        median since it's robust to outliers..."
-...continues for all 8 tools...
+DataPilot-V2/
+├── backend/
+│   ├── app/
+│   │   ├── agent/          # IntentRouter, templates, codegen, qa, pipeline
+│   │   ├── routers/        # FastAPI endpoints (chat, upload, kernel, execute)
+│   │   ├── services/       # Session state
+│   │   └── jupyter/        # Jupyter Server bridge (used by web app variant)
+│   ├── cli/                # `datapilot` REPL — config, kernel, repl, notebook
+│   ├── reference/          # Archived v1 code (LangGraph agent, ML tool catalog)
+│   ├── pyproject.toml      # `pip install -e .` lives here
+│   └── requirements.txt
+└── extension/
+    ├── src/
+    │   ├── extension.ts    # activate(), command registration
+    │   ├── config.ts       # SecretStorage + QuickPick + InputBox
+    │   ├── chat/           # Webview chat sidebar
+    │   ├── notebook/       # Insert generated code into the open .ipynb
+    │   └── backend/        # HTTP client, sends X-Datapilot-* headers
+    ├── package.json        # Manifest, commands, configuration schema
+    └── esbuild.js          # Bundles src/extension.ts to dist/
 ```
-
-The agent **adapts** based on what it finds. High missing values trigger different imputation strategies. Imbalanced classes affect model evaluation. The LLM reasons at every step instead of blindly running a fixed pipeline.
 
 ---
 
 ## Development
 
-### Debug the Extension
-```bash
-# In VS Code, press F5 to launch Extension Development Host
-# Check "Output > DataPilot" for Python server logs
-```
+### Backend
 
-### Debug the Python Backend (standalone)
 ```bash
 cd backend
-python -m uvicorn main:app --host 127.0.0.1 --port 8765 --reload
-
-# Test health check
-curl http://127.0.0.1:8765/health
-
-# Test upload
-curl -X POST http://127.0.0.1:8765/upload-dataset -F "file=@test.csv"
+pip install -e .
+python -m uvicorn app.main:app --reload --port 8000
+curl http://127.0.0.1:8000/health
 ```
 
-### Dev mode for webview
+### Extension
+
 ```bash
-cd webview-ui
-npm run dev    # Vite dev server with hot reload (outside VS Code)
+cd extension
+npm install
+node esbuild.js --watch          # build, then rebuild on change
+```
+
+Press **F5** in VS Code with `extension/` open to launch an Extension Development Host.
+
+### Run the test session
+
+```bash
+printf '/upload test.csv\nshape\nshow head\n/save /tmp/demo.ipynb\n/exit\nn\n' | datapilot
 ```
 
 ---
 
-## Tech Stack
+## Security
 
-| Component | Technology |
-|-----------|-----------|
-| Extension | TypeScript, VS Code Extension API, esbuild |
-| Frontend | React 18, Vite 5, Tailwind CSS, Recharts |
-| Backend | Python, FastAPI, Uvicorn, SSE-Starlette |
-| AI Agent | LangGraph, LangChain, Ollama |
-| LLM | Llama 3.1 8B (via Ollama, free & local) |
-| ML | scikit-learn, XGBoost, LightGBM |
-| Explainability | SHAP |
-| Reports | Jinja2, Matplotlib, Seaborn |
+- API keys are loaded from (in order): CLI flags → environment variables → `~/.datapilot/config.json` → interactive prompt
+- The CLI uses `getpass` for key entry (no echo)
+- The extension uses **SecretStorage** which delegates to the OS keychain
+- Keys are sent to the backend only as `X-Datapilot-Api-Key` headers, used for one request, never logged or persisted server-side
+- `.env`, `~/.datapilot/`, `*.vsix`, and `datapilot_session_*.ipynb` are all `.gitignore`d
+
+---
 
 ## License
 
 MIT
 
----
-
-Built by [Shawn2110](https://github.com/Shawn2110)
+Built by [Shawn2110](https://github.com/Shawn2110).
