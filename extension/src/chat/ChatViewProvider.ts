@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { BackendClient, SSEEvent } from "../backend/BackendClient";
+import { BackendClient } from "../backend/BackendClient";
 import { NotebookBridge } from "../notebook/NotebookBridge";
 
 /**
@@ -54,46 +54,31 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   /**
    * Handle a chat message from the webview.
    *
-   * Sends to backend, streams SSE events, inserts code into notebook.
+   * The new backend returns a single JSON ({explanation, code, source}).
+   * Templates cost no LLM tokens; QA returns text only; codegen returns
+   * LLM-written code. We always show the explanation; if there's code,
+   * we insert it into the notebook and echo it in chat.
    */
   private async handleChat(text: string): Promise<void> {
     this.output.appendLine(`[chat] User: ${text}`);
-
-    // Show user message in chat
     this.postMessage({ type: "user-message", content: text });
 
-    // Stream response from backend
     try {
-      await this.client.chat(this.sessionId, text, (event: SSEEvent) => {
-        switch (event.type) {
-          case "thinking":
-            this.postMessage({ type: "thinking", content: event.content });
-            break;
+      const reply = await this.client.chat(this.sessionId, text);
+      this.sessionId = reply.session_id;
 
-          case "code":
-            // Insert code into notebook cell
-            if (event.content) {
-              this.notebook.insertCodeCell(event.content);
-              this.postMessage({ type: "code", content: event.content });
-            }
-            break;
-
-          case "message":
-            this.postMessage({ type: "assistant-message", content: event.content });
-            break;
-
-          case "done":
-            if (event.session_id) {
-              this.sessionId = event.session_id;
-            }
-            this.postMessage({ type: "done" });
-            break;
-
-          case "error":
-            this.postMessage({ type: "error", content: event.content });
-            break;
-        }
+      this.postMessage({
+        type: "assistant-message",
+        content: reply.explanation,
+        source: reply.source,
       });
+
+      if (reply.code) {
+        await this.notebook.insertCodeCell(reply.code);
+        this.postMessage({ type: "code", content: reply.code });
+      }
+
+      this.postMessage({ type: "done" });
     } catch (err) {
       this.postMessage({
         type: "error",
@@ -215,12 +200,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     align-self: flex-start;
     border-radius: 8px 8px 8px 2px;
   }
-  .msg.thinking {
-    color: var(--vscode-descriptionForeground);
-    font-style: italic;
-    font-size: 12px;
-    align-self: flex-start;
+  .badge {
+    display: inline-block;
+    padding: 1px 6px;
+    margin-right: 4px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    vertical-align: middle;
   }
+  .badge-template { background: rgba(120, 120, 120, 0.2); color: var(--vscode-descriptionForeground); }
+  .badge-codegen  { background: rgba(220, 180, 60, 0.2); color: #d4a64b; }
+  .badge-qa       { background: rgba(80, 140, 220, 0.2); color: #6ba6dc; }
   .msg.code-msg {
     background: var(--vscode-textCodeBlock-background);
     border: 1px solid var(--vscode-panel-border);
@@ -298,11 +291,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const uploadBtn = document.getElementById('uploadBtn');
     let isLoading = false;
 
-    function addMessage(type, content) {
+    function addMessage(type, content, source) {
       const div = document.createElement('div');
       div.className = 'msg ' + type;
       if (type === 'code-msg') {
         div.innerHTML = '<div class="code-label">Code inserted into notebook:</div>' + escapeHtml(content);
+      } else if (type === 'assistant' && source) {
+        const badge = document.createElement('span');
+        badge.className = 'badge badge-' + source;
+        badge.textContent = source;
+        const text = document.createElement('span');
+        text.textContent = ' ' + content;
+        div.appendChild(badge);
+        div.appendChild(text);
       } else {
         div.textContent = content;
       }
@@ -348,10 +349,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           addMessage('user', msg.content);
           break;
         case 'assistant-message':
-          addMessage('assistant', msg.content);
-          break;
-        case 'thinking':
-          addMessage('thinking', msg.content);
+          addMessage('assistant', msg.content, msg.source);
           break;
         case 'code':
           addMessage('code-msg', msg.content);
